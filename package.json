@@ -1,0 +1,35 @@
+{
+  "name": "peerovo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.9.0"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --import tsx --watch src/server.ts",
+    "start": "node --env-file-if-exists=.env dist/server.js",
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "test": "node --import tsx --test test/*.test.ts",
+    "verify": "npm run test && npm run lint && npm run typecheck && npm run build && npm run health",
+    "health": "repnix check"
+  },
+  "dependencies": {
+    "express": "4.22.3",
+    "peer": "1.0.2",
+    "ws": "8.21.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.2.0",
+    "@types/cors": "2.8.19",
+    "@types/express": "4.17.25",
+    "@types/node": "22.19.1",
+    "@types/ws": "8.18.1",
+    "repnix": "^0.3.14",
+    "tsx": "4.23.12",
+    "typescript": "6.0.2"
+  }
+}
