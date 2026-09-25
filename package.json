@@ -10,6 +10,7 @@
     "dev": "node --env-file-if-exists=.env --import tsx --watch src/server.ts",
     "start": "node --env-file-if-exists=.env dist/server.js",
     "build": "tsc -p tsconfig.build.json",
+    "project:add": "node scripts/add-project.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "lint": "biome check .",
     "format": "biome format --write .",

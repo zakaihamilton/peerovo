@@ -23,9 +23,13 @@ The local API and PeerJS signaling listener share port `9000`. Open `http://loca
 
 See [`docs/api-contract.md`](docs/api-contract.md) for the endpoint shapes, token claims, PeerJS handshake, TURN credential lifetime, rate limits, and the behavioral findings taken from HostPresent. See [`SECURITY.md`](SECURITY.md) for deployment and secret-handling requirements.
 
-Projects are provisioned in `PEEROVO_PROJECTS_JSON`. Project API keys are server-only and authorize ticket issuance. The browser receives a peer ticket from its application backend, then uses that ticket for both PeerJS signaling and its ICE configuration request.
+Projects can be provisioned in `PEEROVO_PROJECTS_JSON` or with a dedicated variable pair per project. Project API keys are server-only and authorize ticket issuance. The browser receives a peer ticket from its application backend, then uses that ticket for both PeerJS signaling and its ICE configuration request.
 
 The in-memory signaling peer registry, admission leases, and rate limits require a single Peerovo replica. Put the service behind a TLS-enabled WebSocket proxy in production. Configure the proxy to redact `token` from PeerJS WebSocket access logs.
+
+## Adding projects
+
+For each additional application, see [docs/adding-projects.md](docs/adding-projects.md). It explains how to generate a project key and add independent project variables without replacing the existing project registry.
 
 ## Commands
 

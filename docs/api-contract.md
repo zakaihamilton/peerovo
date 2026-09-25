@@ -159,7 +159,7 @@ Verification rejects malformed or extra token segments, invalid signatures, wron
 See `.env.example` for a complete local template. Required production values are:
 
 - `PEEROVO_SIGNING_SECRET`
-- `PEEROVO_PROJECTS_JSON`
+- `PEEROVO_PROJECTS_JSON` or at least one complete project-specific variable pair
 - `TURN_DOMAIN`
 - `TURN_SECRET_KEY`
 - `PEEROVO_PUBLIC_HOST` and the browser-facing port/security settings

@@ -30,6 +30,53 @@ test("loads safe service and project defaults", () => {
   );
 });
 
+test("adds projects with dedicated variables alongside the existing JSON", () => {
+  const env = validEnvironment();
+  env.PEEROVO_PROJECT_MY_NEW_APP_API_KEY = "n".repeat(48);
+  env.PEEROVO_PROJECT_MY_NEW_APP_ALLOWED_ORIGINS = JSON.stringify([
+    "https://app.example.test",
+    "https://admin.example.test",
+  ]);
+
+  const projects = loadConfig(env).projects;
+  assert.equal(projects.size, 2);
+  assert.equal(projects.get("my-new-app")?.apiKey, "n".repeat(48));
+  assert.deepEqual(projects.get("my-new-app")?.allowedOrigins, [
+    "https://app.example.test",
+    "https://admin.example.test",
+  ]);
+  assert.ok(projects.has("sample"));
+});
+
+test("supports project-specific variables without the JSON registry", () => {
+  const env = validEnvironment();
+  delete env.PEEROVO_PROJECTS_JSON;
+  env.PEEROVO_PROJECT_ANALYTICS_API_KEY = "a".repeat(48);
+  env.PEEROVO_PROJECT_ANALYTICS_ALLOWED_ORIGINS = JSON.stringify([
+    "https://analytics.example.test",
+  ]);
+
+  assert.deepEqual([...loadConfig(env).projects.keys()], ["analytics"]);
+});
+
+test("rejects incomplete, duplicate, and malformed project variables", () => {
+  const incomplete = validEnvironment();
+  incomplete.PEEROVO_PROJECT_EXTRA_API_KEY = "e".repeat(48);
+  assert.throws(() => loadConfig(incomplete), /must set both/);
+
+  const duplicate = validEnvironment();
+  duplicate.PEEROVO_PROJECT_SAMPLE_API_KEY = "d".repeat(48);
+  duplicate.PEEROVO_PROJECT_SAMPLE_ALLOWED_ORIGINS = JSON.stringify([
+    "https://other.example.test",
+  ]);
+  assert.throws(() => loadConfig(duplicate), /configured both/);
+
+  const malformedOrigins = validEnvironment();
+  malformedOrigins.PEEROVO_PROJECT_EXTRA_API_KEY = "e".repeat(48);
+  malformedOrigins.PEEROVO_PROJECT_EXTRA_ALLOWED_ORIGINS = "not-json";
+  assert.throws(() => loadConfig(malformedOrigins), /JSON array/);
+});
+
 test("rejects weak secrets and invalid project configuration", () => {
   const shortSigningSecret = validEnvironment();
   shortSigningSecret.PEEROVO_SIGNING_SECRET = "short";

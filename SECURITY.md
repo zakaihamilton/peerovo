@@ -8,7 +8,7 @@ Peerovo handles project API keys, signed peer tickets, WebSocket signaling admis
 - Keep Peerovo to one replica. Its PeerJS peer registry, room capacity leases, and rate-limit counters are process-local.
 - Expose PeerJS over TLS and WebSocket through a trusted reverse proxy. Set `PEEROVO_PUBLIC_HOST`, `PEEROVO_PUBLIC_PORT`, and `PEEROVO_PUBLIC_SECURE` to the browser-facing values.
 - Set `PEEROVO_TRUST_PROXY=true` only when the proxy overwrites `X-Forwarded-For`. Otherwise Peerovo ignores forwarded IP headers for rate limiting.
-- Configure each project's exact browser origins in `PEEROVO_PROJECTS_JSON`. The ICE endpoint returns CORS headers only for those origins.
+- Configure each project's exact browser origins in `PEEROVO_PROJECTS_JSON` or its dedicated `PEEROVO_PROJECT_<SLUG>_ALLOWED_ORIGINS` variable. The ICE endpoint returns CORS headers only for those origins.
 - Redact the PeerJS WebSocket `token` query parameter from proxy access logs. PeerJS carries it in the upgrade URL because that is the protocol used by its client.
 - Put shared or public HTTP routes behind the platform firewall or edge rate limiter as an additional layer. Peerovo also applies per-process request limits.
 

@@ -96,7 +96,7 @@ function hostnameOnly(value: string, name: string): string {
   return parsed.hostname;
 }
 
-function parseProjects(raw: string): Map<string, ProjectConfig> {
+function parseProjectRegistry(raw: string): Map<string, ProjectConfig> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -173,6 +173,98 @@ function parseProjects(raw: string): Map<string, ProjectConfig> {
   return projects;
 }
 
+interface ProjectEnvironmentVariables {
+  slug: string;
+  apiKey?: string;
+  allowedOrigins?: string;
+}
+
+function parseProjects(
+  raw: string | undefined,
+  env: NodeJS.ProcessEnv,
+): Map<string, ProjectConfig> {
+  const projects =
+    raw === undefined ? new Map<string, ProjectConfig>() : parseProjectRegistry(raw);
+  const variablesByProject = new Map<string, ProjectEnvironmentVariables>();
+  const variablePattern =
+    /^PEEROVO_PROJECT_([A-Z0-9]+(?:_[A-Z0-9]+)*)_(API_KEY|ALLOWED_ORIGINS)$/;
+
+  for (const [name, value] of Object.entries(env)) {
+    if (!name.startsWith("PEEROVO_PROJECT_")) continue;
+
+    const match = variablePattern.exec(name);
+    if (!match) {
+      throw new Error(
+        "Invalid project variable name " +
+          name +
+          ". Use PEEROVO_PROJECT_<SLUG>_API_KEY or PEEROVO_PROJECT_<SLUG>_ALLOWED_ORIGINS.",
+      );
+    }
+    const slug = match[1];
+    const field = match[2];
+    if (!slug || !field) {
+      throw new Error(`Invalid project variable name: ${name}`);
+    }
+    if (value === undefined) {
+      throw new Error(`${name} must be configured.`);
+    }
+
+    const projectId = slug.toLowerCase().replaceAll("_", "-");
+    const projectVariables = variablesByProject.get(projectId) ?? { slug };
+    if (field === "API_KEY") projectVariables.apiKey = value;
+    else projectVariables.allowedOrigins = value;
+    variablesByProject.set(projectId, projectVariables);
+  }
+
+  for (const [projectId, variables] of variablesByProject) {
+    const keyName = `PEEROVO_PROJECT_${variables.slug}_API_KEY`;
+    const originsName = `PEEROVO_PROJECT_${variables.slug}_ALLOWED_ORIGINS`;
+    if (!variables.apiKey || !variables.allowedOrigins) {
+      throw new Error(
+        "Project " +
+          projectId +
+          " must set both " +
+          keyName +
+          " and " +
+          originsName +
+          ".",
+      );
+    }
+    if (projects.has(projectId)) {
+      throw new Error(
+        "Project " +
+          projectId +
+          " is configured both in PEEROVO_PROJECTS_JSON and project-specific variables.",
+      );
+    }
+
+    let allowedOrigins: unknown;
+    try {
+      allowedOrigins = JSON.parse(variables.allowedOrigins);
+    } catch {
+      throw new Error(
+        `${originsName} must contain a JSON array of exact HTTP origins.`,
+      );
+    }
+    const parsedProject = parseProjectRegistry(
+      JSON.stringify({
+        [projectId]: { apiKey: variables.apiKey, allowedOrigins },
+      }),
+    ).get(projectId);
+    if (!parsedProject) {
+      throw new Error(`Could not load project configuration for ${projectId}`);
+    }
+    projects.set(projectId, parsedProject);
+  }
+
+  if (projects.size === 0) {
+    throw new Error(
+      "Configure at least one project with PEEROVO_PROJECTS_JSON or a complete project-specific variable pair.",
+    );
+  }
+  return projects;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): PeerovoConfig {
   const host = env.PEEROVO_HOST?.trim() || "0.0.0.0";
   const port = integerSetting(env, "PORT", 9000, { max: 65_535 });
@@ -216,7 +308,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PeerovoConfig 
     publicPort,
     publicSecure,
     signingSecret,
-    projects: parseProjects(requiredString(env, "PEEROVO_PROJECTS_JSON")),
+    projects: parseProjects(env.PEEROVO_PROJECTS_JSON, env),
     turnSecret,
     turnDomain,
     turnPort: integerSetting(env, "TURN_PORT", 443, { max: 65_535 }),
