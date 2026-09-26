@@ -7,6 +7,7 @@ import {
 import type { PeerovoConfig } from "../config/config.js";
 import { type FixedWindowRateLimiter, getClientIp } from "../security/rateLimiter.js";
 import type { PeerovoUsageTracker } from "../usage/metrics.js";
+import type { PeerovoConnectionDiagnostics } from "./diagnostics.js";
 
 export interface Admission {
   claims: PeerClaims;
@@ -41,6 +42,7 @@ export function createUpgradeAuthorizer({
   capacity,
   limiter,
   usage,
+  diagnostics,
   createOwnerId = (claims) => claims.jti,
   clock = Date.now,
 }: {
@@ -48,6 +50,7 @@ export function createUpgradeAuthorizer({
   capacity: PeerCapacity;
   limiter: FixedWindowRateLimiter;
   usage?: PeerovoUsageTracker;
+  diagnostics?: PeerovoConnectionDiagnostics;
   createOwnerId?: (claims: PeerClaims) => string;
   clock?: () => number;
 }) {
@@ -62,12 +65,14 @@ export function createUpgradeAuthorizer({
       const rate = limiter.consume(clientIp, clock());
       if (!rate.allowed) {
         usage?.recordSignalingRateLimited();
+        diagnostics?.record("rate_limited");
         callback(false, 429, "Too many signaling requests");
         return;
       }
 
       const requestUrl = request.url ?? "/";
       if (requestUrl.length > 8_192) {
+        diagnostics?.record("invalid_request");
         callback(false, 403, "Access denied");
         return;
       }
@@ -76,6 +81,7 @@ export function createUpgradeAuthorizer({
       try {
         url = new URL(requestUrl, "http://peerovo.local");
       } catch {
+        diagnostics?.record("invalid_request");
         callback(false, 403, "Access denied");
         return;
       }
@@ -83,12 +89,14 @@ export function createUpgradeAuthorizer({
       const peerIds = url.searchParams.getAll("id");
       const tokens = url.searchParams.getAll("token");
       const keys = url.searchParams.getAll("key");
-      if (
-        peerIds.length !== 1 ||
-        tokens.length !== 1 ||
-        keys.length !== 1 ||
-        keys[0] !== config.key
-      ) {
+      if (peerIds.length !== 1 || tokens.length !== 1 || keys.length !== 1) {
+        diagnostics?.record("invalid_request");
+        callback(false, 403, "Access denied");
+        return;
+      }
+
+      if (keys[0] !== config.key) {
+        diagnostics?.record("invalid_credentials");
         callback(false, 403, "Access denied");
         return;
       }
@@ -101,6 +109,7 @@ export function createUpgradeAuthorizer({
         !config.projects.has(claims.projectId) ||
         !isPeerAuthorizedForClaims(peerId, claims.projectId, claims.sessionId, claims)
       ) {
+        diagnostics?.record("invalid_credentials");
         callback(false, 403, "Access denied");
         return;
       }
@@ -120,11 +129,13 @@ export function createUpgradeAuthorizer({
         );
       } catch {
         usage?.recordSignalingAdmission(claims.projectId, false);
+        diagnostics?.record("admission_unavailable");
         callback(false, 503, "Session admission is unavailable");
         return;
       }
       if (!admitted) {
         usage?.recordSignalingAdmission(claims.projectId, false);
+        diagnostics?.record("capacity_reached");
         callback(false, 429, "Project or session is at capacity");
         return;
       }
@@ -132,6 +143,9 @@ export function createUpgradeAuthorizer({
       usage?.recordSignalingAdmission(claims.projectId, true);
       request.peerovoAdmission = { claims, ownerId };
       callback(true, 200);
-    })().catch(() => callback(false, 503, "Session admission is unavailable"));
+    })().catch(() => {
+      diagnostics?.record("admission_unavailable");
+      callback(false, 503, "Session admission is unavailable");
+    });
   };
 }

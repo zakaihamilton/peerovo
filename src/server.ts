@@ -13,6 +13,10 @@ import {
   PEER_CAPACITY_RENEW_INTERVAL_MS,
 } from "./peers/capacity.js";
 import {
+  createPeerovoConnectionDiagnostics,
+  type PeerovoConnectionDiagnostics,
+} from "./peers/diagnostics.js";
+import {
   type Admission,
   createUpgradeAuthorizer,
   type PeerovoIncomingMessage,
@@ -39,6 +43,40 @@ interface ActiveSession {
 
 const SERVICE_RESTART_CLOSE_CODE = 1012;
 const SOCKET_DRAIN_TIMEOUT_MS = 5_000;
+const MAX_LEASE_RENEWAL_FAILURES = 3;
+
+function safeErrorType(error: Error): string {
+  return /^[A-Za-z][A-Za-z0-9]{0,31}$/.test(error.name) ? error.name : "Error";
+}
+
+function safeErrorCode(error: Error): string | null {
+  const code = (error as NodeJS.ErrnoException).code;
+  return typeof code === "string" && /^[A-Z0-9_]{1,40}$/.test(code) ? code : null;
+}
+
+function safeErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return "Unknown startup error";
+  return error.message.replace(/[\r\n\t]+/g, " ").slice(0, 240) || safeErrorType(error);
+}
+
+function writeUsageSummary(
+  usage: ReturnType<typeof createPeerovoUsageTracker>,
+  diagnostics: PeerovoConnectionDiagnostics,
+): void {
+  process.stdout.write(
+    `[peerovo] usage ${JSON.stringify({
+      ...usage.flush(),
+      connectionDiagnostics: diagnostics.flush(),
+    })}\n`,
+  );
+}
+
+function closePeerForAdmissionFailure(entry: ActivePeer, reason: string): boolean {
+  const socket = entry.client.getSocket();
+  if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+  socket.close(1013, reason);
+  return true;
+}
 
 function waitForSocketDrain(sockets: WebSocket[], timeoutMs: number): Promise<void> {
   const pending = sockets.filter((socket) => socket.readyState !== WebSocket.CLOSED);
@@ -72,8 +110,15 @@ export interface PeerovoRuntime {
 
 export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
   const usage = createPeerovoUsageTracker(config.projects.keys());
+  const connectionDiagnostics = createPeerovoConnectionDiagnostics();
   const app = createApiApp(config, undefined, usage);
   const server = createServer(app);
+  server.on("error", (error) => {
+    const code = safeErrorCode(error);
+    process.stderr.write(
+      `[peerovo] HTTP server error type=${safeErrorType(error)}${code ? ` code=${code}` : ""}\n`,
+    );
+  });
   const capacity = createPeerCapacityStore({
     maxPeersPerSession: config.maxPeersPerSession,
     maxPeersPerProject: (projectId) =>
@@ -86,6 +131,7 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
     capacity,
     limiter: signalingRateLimiter,
     usage,
+    diagnostics: connectionDiagnostics,
   });
   let peerWebSocketServer: WebSocketServer | null = null;
 
@@ -199,10 +245,13 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
       .catch(() => {});
   });
 
-  peerServer.on("error", () => {
+  peerServer.on("error", (error) => {
     // PeerJS errors can be triggered by untrusted signaling traffic. Avoid
     // logging request URLs, ticket values, or library error details.
-    process.stderr.write("[peerovo] signaling server error\n");
+    connectionDiagnostics.record("signaling_server_error");
+    process.stderr.write(
+      `[peerovo] signaling server error type=${safeErrorType(error)}\n`,
+    );
   });
 
   let renewalInFlight = false;
@@ -230,10 +279,11 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
               for (const [peerId, entry] of activeSession.peers) {
                 if (activeSession.peers.get(peerId) !== entry) continue;
                 entry.renewalFailures += 1;
-                if (entry.renewalFailures >= 2) {
-                  entry.client
-                    .getSocket()
-                    ?.close(1013, "Session admission unavailable");
+                if (
+                  entry.renewalFailures >= MAX_LEASE_RENEWAL_FAILURES &&
+                  closePeerForAdmissionFailure(entry, "Session admission unavailable")
+                ) {
+                  connectionDiagnostics.record("lease_renewal_unavailable");
                 }
               }
               return;
@@ -242,9 +292,11 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
             for (const [peerId, entry] of activeSession.peers) {
               if (activeSession.peers.get(peerId) !== entry) continue;
               if (!renewedOwnerIds.has(entry.ownerId)) {
-                entry.client
-                  .getSocket()
-                  ?.close(1013, "Session admission lease expired");
+                if (
+                  closePeerForAdmissionFailure(entry, "Session admission lease expired")
+                ) {
+                  connectionDiagnostics.record("lease_expired");
+                }
                 continue;
               }
               entry.renewalFailures = 0;
@@ -259,7 +311,7 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
   renewalTimer.unref?.();
 
   const usageTimer = setInterval(() => {
-    process.stdout.write(`[peerovo] usage ${JSON.stringify(usage.flush())}\n`);
+    writeUsageSummary(usage, connectionDiagnostics);
   }, config.usageLogIntervalSeconds * 1_000);
   usageTimer.unref?.();
 
@@ -309,7 +361,7 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
         }
 
         await Promise.all([peerWebSocketServerClosed, httpServerClosed]);
-        process.stdout.write(`[peerovo] usage ${JSON.stringify(usage.flush())}\n`);
+        writeUsageSummary(usage, connectionDiagnostics);
       })();
 
       return closePromise;
@@ -366,8 +418,8 @@ async function main(): Promise<void> {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  void main().catch(() => {
-    process.stderr.write("[peerovo] startup failed; check required configuration\n");
+  void main().catch((error: unknown) => {
+    process.stderr.write(`[peerovo] startup failed: ${safeErrorMessage(error)}\n`);
     process.exitCode = 1;
   });
 }

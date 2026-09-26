@@ -195,7 +195,7 @@ export function createApiApp(
         path: config.path,
         key: config.key,
         secure: config.publicSecure,
-        debug: 0,
+        debug: config.peerJsDebug ?? 0,
       },
     });
   });

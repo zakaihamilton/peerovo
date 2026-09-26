@@ -39,7 +39,7 @@ Public, non-secret PeerJS client settings. Cross-origin reads are allowed becaus
 }
 ```
 
-The browser passes the `peerToken` it receives from its own backend as PeerJS's `token` option and supplies the returned ICE servers to `RTCPeerConnection`.
+The browser passes the `peerToken` it receives from its own backend as PeerJS's `token` option and supplies the returned ICE servers to `RTCPeerConnection`. The `debug` value is controlled by `PEEROVO_PEERJS_DEBUG` (0 through 3, default 0) and is passed through to PeerJS clients.
 
 ### `POST /v1/projects/{projectId}/sessions/{sessionId}/peers`
 
@@ -133,14 +133,23 @@ Verification rejects malformed or extra token segments, invalid signatures, wron
 
 - HTTP responses use `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and a restrictive content security policy.
 - The JSON request limit is 2 KiB. Ticket, ICE, and signaling upgrade requests have per-IP, per-process fixed-window limits; ticket and ICE defaults are 120/minute.
-- `PEEROVO_MAX_PEERS_PER_SESSION` defaults to 30 concurrent peers. Each signaling admission is reserved with a 30-second lease and renewed every 8 seconds; after two renewal errors or a lost lease, that peer is closed.
+- `PEEROVO_MAX_PEERS_PER_SESSION` defaults to 30 concurrent peers. Each signaling admission is reserved with a 30-second lease and renewed every 8 seconds. A lost lease closes the peer immediately; three consecutive renewal errors close it while leaving time for the lease to expire.
 - Each project has its own concurrent-peer cap. `PEEROVO_MAX_PEERS_PER_PROJECT` defaults to 60; a project may override it with `maxPeers` in `PEEROVO_PROJECTS_JSON` or `PEEROVO_PROJECT_<SLUG>_MAX_PEERS`. The cap counts active admission leases across the project's sessions and does not combine separate projects.
 - PeerJS's global concurrent signaling limit defaults to 5,000. Signaling payloads are capped at 256 KiB and WebSocket compression is disabled.
 - Local rate limits are process-local, so keep one replica and use the deployment firewall for edge-wide rate limits.
 
 ### Usage summaries
 
-Peerovo writes a JSON usage summary to stdout every five minutes by default (`PEEROVO_USAGE_LOG_INTERVAL_SECONDS`, configurable from 60 to 3,600 seconds) and once during shutdown. Per-project rolling counts include ticket requests/issuance, ICE-config requests/issuance, HTTP rate-limit rejections, signaling attempts/admissions/capacity rejections, current active peers, and the interval peak. Signaling-upgrade IP rate limits are counted service-wide because that limiter runs before Peerovo trusts a project's ticket. Counts reset after each summary; active and peak peer counts remain available for the next interval. No IPs, session IDs, peer IDs, tickets, or credentials are logged.
+Peerovo writes a JSON usage summary to stdout every five minutes by default (`PEEROVO_USAGE_LOG_INTERVAL_SECONDS`, configurable from 60 to 3,600 seconds) and once during shutdown. Per-project rolling counts include ticket requests/issuance, ICE-config requests/issuance, HTTP rate-limit rejections, signaling attempts/admissions/capacity rejections, current active peers, and the interval peak. The summary also includes service-wide `connectionDiagnostics` counts for invalid signaling requests or credentials, rate limiting, capacity, admission-store errors, lease closures, and signaling-server errors. Signaling-upgrade IP rate limits are counted service-wide because that limiter runs before Peerovo trusts a project's ticket. Counts reset after each summary; active and peak peer counts remain available for the next interval. No IPs, session IDs, peer IDs, tickets, or credentials are logged.
+
+### Troubleshooting connections
+
+1. Check `GET /healthz`, `GET /readyz`, and `GET /v1/config` from the browser-facing host. Confirm the returned PeerJS host, port, path, and secure flag match the TLS/WebSocket proxy.
+2. Temporarily set `PEEROVO_PEERJS_DEBUG=3` and reload the client. PeerJS diagnostics appear in the browser console. Return it to `0` after troubleshooting.
+3. Check Peerovo's periodic `connectionDiagnostics` counts. `invalid_credentials` points to a ticket/key/peer-ID mismatch; `capacity_reached` means a session or project cap was reached; `admission_unavailable` indicates the service could not reserve capacity; lease reasons indicate an active socket lost its admission lease.
+4. If signaling succeeds but media does not connect, inspect the browser's WebRTC connection/ICE candidate state and verify the configured TURN host, UDP/TLS ports, and coturn credentials. Peerovo's signaling logs cannot show the selected ICE candidate pair or relayed media traffic.
+
+For faster feedback while investigating, set `PEEROVO_USAGE_LOG_INTERVAL_SECONDS=60`. Never enable proxy access logging for the PeerJS `token` query parameter.
 
 These summaries measure Peerovo API/signaling load, not TURN bandwidth. WebRTC media is relayed by coturn when needed, so traffic monitoring and any fair-use alert must be collected on the coturn host. See [TURN usage monitoring](turn-usage-monitoring.md).
 

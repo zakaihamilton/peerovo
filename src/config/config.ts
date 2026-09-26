@@ -28,6 +28,7 @@ export interface PeerovoConfig {
   ticketRateLimit: number;
   iceRateLimit: number;
   signalingRateLimit: number;
+  peerJsDebug?: number;
 }
 
 const PROJECT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
@@ -375,6 +376,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PeerovoConfig 
     }),
     signalingRateLimit: integerSetting(env, "PEEROVO_SIGNALING_RATE_LIMIT", 120, {
       max: 100_000,
+    }),
+    peerJsDebug: integerSetting(env, "PEEROVO_PEERJS_DEBUG", 0, {
+      min: 0,
+      max: 3,
     }),
   };
 }

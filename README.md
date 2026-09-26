@@ -27,6 +27,8 @@ Projects can be provisioned in `PEEROVO_PROJECTS_JSON` or with a dedicated varia
 
 Peerovo writes a periodic, secret-free JSON usage summary to its service logs, grouped by project. `PEEROVO_MAX_PEERS_PER_PROJECT` defaults to 60; a project can override it with `maxPeers` in `PEEROVO_PROJECTS_JSON` or `PEEROVO_PROJECT_<SLUG>_MAX_PEERS`. These counters cover Peerovo requests and signaling only. Relayed media traffic must be measured at coturn.
 
+For connection troubleshooting, `PEEROVO_PEERJS_DEBUG=3` enables PeerJS browser-console diagnostics, and service summaries include reason counts for signaling and admission failures. See the [connection troubleshooting guide](docs/api-contract.md#troubleshooting-connections) for checks and safe logging guidance.
+
 The in-memory signaling peer registry, admission leases, and rate limits require a single Peerovo replica. Put the service behind a TLS-enabled WebSocket proxy in production. Configure the proxy to redact `token` from PeerJS WebSocket access logs.
 
 ## Adding projects
