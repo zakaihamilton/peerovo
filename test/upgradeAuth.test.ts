@@ -6,6 +6,7 @@ import {
   type PeerovoIncomingMessage,
 } from "../src/peers/upgradeAuth.js";
 import { FixedWindowRateLimiter } from "../src/security/rateLimiter.js";
+import { createPeerovoUsageTracker } from "../src/usage/metrics.js";
 import { testConfig } from "./helpers.js";
 
 const now = 1_790_337_000_000;
@@ -88,6 +89,38 @@ test("admits a valid ticket and carries its lease owner to the socket", async ()
     },
     ownerId: "owner-1",
   });
+});
+
+test("records signaling attempts and session-capacity rejections by project", async () => {
+  const config = testConfig();
+  const usage = createPeerovoUsageTracker(config.projects.keys());
+  const token = signedToken();
+  const info = createInfo(
+    new URLSearchParams({ id: "peer-456", token, key: "peerjs" }).toString(),
+  );
+  const authorizer = createUpgradeAuthorizer({
+    config,
+    capacity: { acquire: async () => false },
+    limiter: new FixedWindowRateLimiter(120),
+    usage,
+    clock: () => now,
+  });
+
+  const result = await new Promise<{ allowed: boolean; statusCode?: number }>(
+    (resolve) => {
+      authorizer(info, (allowed, statusCode) =>
+        resolve({ allowed, ...(statusCode === undefined ? {} : { statusCode }) }),
+      );
+    },
+  );
+
+  assert.deepEqual(result, { allowed: false, statusCode: 429 });
+  const projectUsage = usage
+    .flush()
+    .projects.find(({ projectId }) => projectId === "sample");
+  assert.equal(projectUsage?.signalingAttempts, 1);
+  assert.equal(projectUsage?.signalingAdmissionRejected, 1);
+  assert.equal(projectUsage?.signalingAdmitted, 0);
 });
 
 test("rejects duplicate or missing handshake parameters and invalid identity", async () => {

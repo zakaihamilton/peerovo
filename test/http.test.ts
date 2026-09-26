@@ -3,13 +3,15 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 import { createApiApp } from "../src/http/app.js";
+import { createPeerovoUsageTracker } from "../src/usage/metrics.js";
 import { testConfig } from "./helpers.js";
 
 async function withApi(
   run: (baseUrl: string) => Promise<void>,
   config = testConfig(),
+  usage = createPeerovoUsageTracker(config.projects.keys()),
 ): Promise<void> {
-  const server = createServer(createApiApp(config));
+  const server = createServer(createApiApp(config, undefined, usage));
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(0, "127.0.0.1", resolve);
@@ -25,6 +27,38 @@ async function withApi(
     });
   }
 }
+
+test("records authenticated ticket and ICE usage by project", async () => {
+  const usage = createPeerovoUsageTracker(["sample"]);
+  await withApi(
+    async (baseUrl) => {
+      const ticketResponse = await requestPeerTicket(baseUrl);
+      const ticket = (await ticketResponse.json()) as PeerTicketResponse;
+      assert.equal(ticketResponse.status, 201);
+      assert.equal(
+        (await requestPeerTicket(baseUrl, { peerId: "peer-second" })).status,
+        429,
+      );
+
+      const iceUrl = `${baseUrl}/v1/projects/sample/sessions/session-123/peers/peer-456/ice-config`;
+      const iceHeaders = { Authorization: `Bearer ${ticket.peerToken}` };
+      assert.equal((await fetch(iceUrl, { headers: iceHeaders })).status, 200);
+      assert.equal((await fetch(iceUrl, { headers: iceHeaders })).status, 429);
+    },
+    testConfig({ ticketRateLimit: 1, iceRateLimit: 1 }),
+    usage,
+  );
+
+  const projectUsage = usage
+    .flush()
+    .projects.find(({ projectId }) => projectId === "sample");
+  assert.equal(projectUsage?.ticketRequests, 2);
+  assert.equal(projectUsage?.ticketsIssued, 1);
+  assert.equal(projectUsage?.ticketRateLimited, 1);
+  assert.equal(projectUsage?.iceConfigRequests, 2);
+  assert.equal(projectUsage?.iceConfigsIssued, 1);
+  assert.equal(projectUsage?.iceRateLimited, 1);
+});
 
 async function requestPeerTicket(
   baseUrl: string,

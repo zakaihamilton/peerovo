@@ -23,6 +23,9 @@ test("loads safe service and project defaults", () => {
   assert.equal(config.publicSecure, false);
   assert.equal(config.path, "/");
   assert.equal(config.maxPeersPerSession, 30);
+  assert.equal(config.maxPeersPerProject, 60);
+  assert.equal(config.usageLogIntervalSeconds, 300);
+  assert.equal(config.projects.get("sample")?.maxPeers, 60);
   assert.equal(config.turnCredentialTtlSeconds, 120);
   assert.equal(
     config.projects.get("sample")?.allowedOrigins[0],
@@ -37,6 +40,7 @@ test("adds projects with dedicated variables alongside the existing JSON", () =>
     "https://app.example.test",
     "https://admin.example.test",
   ]);
+  env.PEEROVO_PROJECT_MY_NEW_APP_MAX_PEERS = "24";
 
   const projects = loadConfig(env).projects;
   assert.equal(projects.size, 2);
@@ -45,6 +49,7 @@ test("adds projects with dedicated variables alongside the existing JSON", () =>
     "https://app.example.test",
     "https://admin.example.test",
   ]);
+  assert.equal(projects.get("my-new-app")?.maxPeers, 24);
   assert.ok(projects.has("sample"));
 });
 
@@ -94,6 +99,34 @@ test("rejects weak secrets and invalid project configuration", () => {
     },
   });
   assert.throws(() => loadConfig(badOrigins), /exact HTTP origins/);
+});
+
+test("supports project-specific peer caps in the JSON registry", () => {
+  const env = validEnvironment();
+  env.PEEROVO_PROJECTS_JSON = JSON.stringify({
+    sample: {
+      apiKey: "k".repeat(48),
+      allowedOrigins: ["https://app.example.test"],
+      maxPeers: 18,
+    },
+  });
+  assert.equal(loadConfig(env).projects.get("sample")?.maxPeers, 18);
+});
+
+test("rejects out-of-range project peer caps and usage log intervals", () => {
+  const badProjectCap = validEnvironment();
+  badProjectCap.PEEROVO_PROJECTS_JSON = JSON.stringify({
+    sample: {
+      apiKey: "k".repeat(48),
+      allowedOrigins: ["https://app.example.test"],
+      maxPeers: 501,
+    },
+  });
+  assert.throws(() => loadConfig(badProjectCap), /maxPeers must be an integer/);
+
+  const badLogInterval = validEnvironment();
+  badLogInterval.PEEROVO_USAGE_LOG_INTERVAL_SECONDS = "10";
+  assert.throws(() => loadConfig(badLogInterval), /PEEROVO_USAGE_LOG_INTERVAL_SECONDS/);
 });
 
 test("rejects unsafe PeerJS paths, keys, and TURN host values", () => {

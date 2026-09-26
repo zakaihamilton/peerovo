@@ -1,6 +1,7 @@
 export interface ProjectConfig {
   apiKey: string;
   allowedOrigins: string[];
+  maxPeers: number;
 }
 
 export interface PeerovoConfig {
@@ -21,7 +22,9 @@ export interface PeerovoConfig {
   turnsPort: number;
   turnCredentialTtlSeconds: number;
   maxPeersPerSession: number;
+  maxPeersPerProject: number;
   maxSignalingConnections: number;
+  usageLogIntervalSeconds: number;
   ticketRateLimit: number;
   iceRateLimit: number;
   signalingRateLimit: number;
@@ -96,7 +99,10 @@ function hostnameOnly(value: string, name: string): string {
   return parsed.hostname;
 }
 
-function parseProjectRegistry(raw: string): Map<string, ProjectConfig> {
+function parseProjectRegistry(
+  raw: string,
+  defaultMaxPeers: number,
+): Map<string, ProjectConfig> {
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
@@ -128,7 +134,9 @@ function parseProjectRegistry(raw: string): Map<string, ProjectConfig> {
       );
     }
     if (
-      Object.keys(project).some((key) => !["apiKey", "allowedOrigins"].includes(key))
+      Object.keys(project).some(
+        (key) => !["apiKey", "allowedOrigins", "maxPeers"].includes(key),
+      )
     ) {
       throw new Error(
         `Project ${projectId} contains unsupported configuration fields.`,
@@ -164,7 +172,22 @@ function parseProjectRegistry(raw: string): Map<string, ProjectConfig> {
       return parsedOrigin.origin;
     });
 
-    projects.set(projectId, { apiKey: project.apiKey, allowedOrigins });
+    const maxPeers = project.maxPeers ?? defaultMaxPeers;
+    if (
+      !Number.isInteger(maxPeers) ||
+      (maxPeers as number) < 1 ||
+      (maxPeers as number) > 500
+    ) {
+      throw new Error(
+        `Project ${projectId} maxPeers must be an integer from 1 to 500.`,
+      );
+    }
+
+    projects.set(projectId, {
+      apiKey: project.apiKey,
+      allowedOrigins,
+      maxPeers: maxPeers as number,
+    });
   }
 
   if (projects.size === 0) {
@@ -177,17 +200,21 @@ interface ProjectEnvironmentVariables {
   slug: string;
   apiKey?: string;
   allowedOrigins?: string;
+  maxPeers?: string;
 }
 
 function parseProjects(
   raw: string | undefined,
   env: NodeJS.ProcessEnv,
+  defaultMaxPeers: number,
 ): Map<string, ProjectConfig> {
   const projects =
-    raw === undefined ? new Map<string, ProjectConfig>() : parseProjectRegistry(raw);
+    raw === undefined
+      ? new Map<string, ProjectConfig>()
+      : parseProjectRegistry(raw, defaultMaxPeers);
   const variablesByProject = new Map<string, ProjectEnvironmentVariables>();
   const variablePattern =
-    /^PEEROVO_PROJECT_([A-Z0-9]+(?:_[A-Z0-9]+)*)_(API_KEY|ALLOWED_ORIGINS)$/;
+    /^PEEROVO_PROJECT_([A-Z0-9]+(?:_[A-Z0-9]+)*)_(API_KEY|ALLOWED_ORIGINS|MAX_PEERS)$/;
 
   for (const [name, value] of Object.entries(env)) {
     if (!name.startsWith("PEEROVO_PROJECT_")) continue;
@@ -197,7 +224,7 @@ function parseProjects(
       throw new Error(
         "Invalid project variable name " +
           name +
-          ". Use PEEROVO_PROJECT_<SLUG>_API_KEY or PEEROVO_PROJECT_<SLUG>_ALLOWED_ORIGINS.",
+          ". Use PEEROVO_PROJECT_<SLUG>_API_KEY, _ALLOWED_ORIGINS, or _MAX_PEERS.",
       );
     }
     const slug = match[1];
@@ -212,7 +239,8 @@ function parseProjects(
     const projectId = slug.toLowerCase().replaceAll("_", "-");
     const projectVariables = variablesByProject.get(projectId) ?? { slug };
     if (field === "API_KEY") projectVariables.apiKey = value;
-    else projectVariables.allowedOrigins = value;
+    else if (field === "ALLOWED_ORIGINS") projectVariables.allowedOrigins = value;
+    else projectVariables.maxPeers = value;
     variablesByProject.set(projectId, projectVariables);
   }
 
@@ -246,10 +274,13 @@ function parseProjects(
         `${originsName} must contain a JSON array of exact HTTP origins.`,
       );
     }
+    const maxPeers =
+      variables.maxPeers === undefined ? defaultMaxPeers : Number(variables.maxPeers);
     const parsedProject = parseProjectRegistry(
       JSON.stringify({
-        [projectId]: { apiKey: variables.apiKey, allowedOrigins },
+        [projectId]: { apiKey: variables.apiKey, allowedOrigins, maxPeers },
       }),
+      defaultMaxPeers,
     ).get(projectId);
     if (!parsedProject) {
       throw new Error(`Could not load project configuration for ${projectId}`);
@@ -296,6 +327,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PeerovoConfig 
     "PEEROVO_PUBLIC_SECURE",
     !(publicHost === "localhost" || publicHost === "127.0.0.1"),
   );
+  const maxPeersPerProject = integerSetting(env, "PEEROVO_MAX_PEERS_PER_PROJECT", 60, {
+    max: 500,
+  });
 
   return {
     host,
@@ -308,7 +342,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PeerovoConfig 
     publicPort,
     publicSecure,
     signingSecret,
-    projects: parseProjects(env.PEEROVO_PROJECTS_JSON, env),
+    projects: parseProjects(env.PEEROVO_PROJECTS_JSON, env, maxPeersPerProject),
     turnSecret,
     turnDomain,
     turnPort: integerSetting(env, "TURN_PORT", 443, { max: 65_535 }),
@@ -320,11 +354,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): PeerovoConfig 
     maxPeersPerSession: integerSetting(env, "PEEROVO_MAX_PEERS_PER_SESSION", 30, {
       max: 500,
     }),
+    maxPeersPerProject,
     maxSignalingConnections: integerSetting(
       env,
       "PEEROVO_MAX_SIGNALING_CONNECTIONS",
       5_000,
       { max: 100_000 },
+    ),
+    usageLogIntervalSeconds: integerSetting(
+      env,
+      "PEEROVO_USAGE_LOG_INTERVAL_SECONDS",
+      300,
+      { min: 60, max: 3_600 },
     ),
     ticketRateLimit: integerSetting(env, "PEEROVO_TICKET_RATE_LIMIT", 120, {
       max: 100_000,

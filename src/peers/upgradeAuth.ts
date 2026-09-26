@@ -6,6 +6,7 @@ import {
 } from "../auth/peerToken.js";
 import type { PeerovoConfig } from "../config/config.js";
 import { type FixedWindowRateLimiter, getClientIp } from "../security/rateLimiter.js";
+import type { PeerovoUsageTracker } from "../usage/metrics.js";
 
 export interface Admission {
   claims: PeerClaims;
@@ -39,12 +40,14 @@ export function createUpgradeAuthorizer({
   config,
   capacity,
   limiter,
+  usage,
   createOwnerId = (claims) => claims.jti,
   clock = Date.now,
 }: {
   config: PeerovoConfig;
   capacity: PeerCapacity;
   limiter: FixedWindowRateLimiter;
+  usage?: PeerovoUsageTracker;
   createOwnerId?: (claims: PeerClaims) => string;
   clock?: () => number;
 }) {
@@ -58,6 +61,7 @@ export function createUpgradeAuthorizer({
       );
       const rate = limiter.consume(clientIp, clock());
       if (!rate.allowed) {
+        usage?.recordSignalingRateLimited();
         callback(false, 429, "Too many signaling requests");
         return;
       }
@@ -94,11 +98,13 @@ export function createUpgradeAuthorizer({
       if (
         !peerId ||
         !claims ||
+        !config.projects.has(claims.projectId) ||
         !isPeerAuthorizedForClaims(peerId, claims.projectId, claims.sessionId, claims)
       ) {
         callback(false, 403, "Access denied");
         return;
       }
+      usage?.recordSignalingAttempt(claims.projectId);
 
       // A PeerJS client reconnects with the same signed ticket. Reuse its
       // unique ticket ID as the admission owner so a short network drop can
@@ -113,14 +119,17 @@ export function createUpgradeAuthorizer({
           ownerId,
         );
       } catch {
+        usage?.recordSignalingAdmission(claims.projectId, false);
         callback(false, 503, "Session admission is unavailable");
         return;
       }
       if (!admitted) {
-        callback(false, 429, "Session is at capacity");
+        usage?.recordSignalingAdmission(claims.projectId, false);
+        callback(false, 429, "Project or session is at capacity");
         return;
       }
 
+      usage?.recordSignalingAdmission(claims.projectId, true);
       request.peerovoAdmission = { claims, ownerId };
       callback(true, 200);
     })().catch(() => callback(false, 503, "Session admission is unavailable"));

@@ -18,6 +18,7 @@ export function testConfig(overrides: Partial<PeerovoConfig> = {}): PeerovoConfi
         {
           apiKey: "k".repeat(48),
           allowedOrigins: ["https://app.example.test"],
+          maxPeers: 60,
         },
       ],
     ]),
@@ -27,7 +28,9 @@ export function testConfig(overrides: Partial<PeerovoConfig> = {}): PeerovoConfi
     turnsPort: 443,
     turnCredentialTtlSeconds: 120,
     maxPeersPerSession: 30,
+    maxPeersPerProject: 60,
     maxSignalingConnections: 5_000,
+    usageLogIntervalSeconds: 300,
     ticketRateLimit: 120,
     iceRateLimit: 120,
     signalingRateLimit: 120,

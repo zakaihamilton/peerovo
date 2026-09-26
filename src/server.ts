@@ -18,6 +18,7 @@ import {
   type PeerovoIncomingMessage,
 } from "./peers/upgradeAuth.js";
 import { FixedWindowRateLimiter } from "./security/rateLimiter.js";
+import { createPeerovoUsageTracker } from "./usage/metrics.js";
 
 interface PeerovoWebSocket extends WebSocket {
   peerovoAdmission?: Admission;
@@ -39,13 +40,8 @@ interface ActiveSession {
 const SERVICE_RESTART_CLOSE_CODE = 1012;
 const SOCKET_DRAIN_TIMEOUT_MS = 5_000;
 
-function waitForSocketDrain(
-  sockets: WebSocket[],
-  timeoutMs: number,
-): Promise<void> {
-  const pending = sockets.filter(
-    (socket) => socket.readyState !== WebSocket.CLOSED,
-  );
+function waitForSocketDrain(sockets: WebSocket[], timeoutMs: number): Promise<void> {
+  const pending = sockets.filter((socket) => socket.readyState !== WebSocket.CLOSED);
   if (pending.length === 0) return Promise.resolve();
 
   return new Promise((resolve) => {
@@ -75,10 +71,13 @@ export interface PeerovoRuntime {
 }
 
 export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
-  const app = createApiApp(config);
+  const usage = createPeerovoUsageTracker(config.projects.keys());
+  const app = createApiApp(config, undefined, usage);
   const server = createServer(app);
   const capacity = createPeerCapacityStore({
     maxPeersPerSession: config.maxPeersPerSession,
+    maxPeersPerProject: (projectId) =>
+      config.projects.get(projectId)?.maxPeers ?? config.maxPeersPerProject,
   });
   const activePeersBySession = new Map<string, ActiveSession>();
   const signalingRateLimiter = new FixedWindowRateLimiter(config.signalingRateLimit);
@@ -86,6 +85,7 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
     config,
     capacity,
     limiter: signalingRateLimiter,
+    usage,
   });
   let peerWebSocketServer: WebSocketServer | null = null;
 
@@ -136,12 +136,14 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
       )
     ) {
       if (admission) {
-        void capacity.release(
-          admission.claims.projectId,
-          admission.claims.sessionId,
-          admission.claims.peerId,
-          admission.ownerId,
-        ).catch(() => {});
+        void capacity
+          .release(
+            admission.claims.projectId,
+            admission.claims.sessionId,
+            admission.claims.peerId,
+            admission.ownerId,
+          )
+          .catch(() => {});
       }
       socket?.close(1011, "Peer admission is invalid");
       return;
@@ -166,6 +168,7 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
       renewalFailures: 0,
     };
     activeSession.peers.set(client.getId(), entry);
+    if (!previous) usage.recordPeerConnected(claims.projectId);
     if (previous && previous.ownerId !== entry.ownerId) {
       void capacity
         .release(
@@ -190,6 +193,7 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
 
     activeSession.peers.delete(client.getId());
     if (activeSession.peers.size === 0) activePeersBySession.delete(key);
+    usage.recordPeerDisconnected(claims.projectId);
     void capacity
       .release(claims.projectId, claims.sessionId, client.getId(), entry.ownerId)
       .catch(() => {});
@@ -254,6 +258,11 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
   }, PEER_CAPACITY_RENEW_INTERVAL_MS);
   renewalTimer.unref?.();
 
+  const usageTimer = setInterval(() => {
+    process.stdout.write(`[peerovo] usage ${JSON.stringify(usage.flush())}\n`);
+  }, config.usageLogIntervalSeconds * 1_000);
+  usageTimer.unref?.();
+
   let closePromise: Promise<void> | null = null;
 
   return {
@@ -265,6 +274,7 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
 
       closePromise = (async () => {
         clearInterval(renewalTimer);
+        clearInterval(usageTimer);
 
         const sockets = [...(peerWebSocketServer?.clients ?? [])];
         const peerWebSocketServerClosed = peerWebSocketServer
@@ -299,6 +309,7 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
         }
 
         await Promise.all([peerWebSocketServerClosed, httpServerClosed]);
+        process.stdout.write(`[peerovo] usage ${JSON.stringify(usage.flush())}\n`);
       })();
 
       return closePromise;

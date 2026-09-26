@@ -8,6 +8,10 @@ import type { PeerovoConfig } from "../config/config.js";
 import { extractBearerToken, matchesProjectKey } from "../security/projectKey.js";
 import { FixedWindowRateLimiter, getClientIp } from "../security/rateLimiter.js";
 import { createIceConfig } from "../turn/credentials.js";
+import {
+  createPeerovoUsageTracker,
+  type PeerovoUsageTracker,
+} from "../usage/metrics.js";
 
 interface RateLimiters {
   tickets: FixedWindowRateLimiter;
@@ -159,6 +163,7 @@ export function createApiApp(
     tickets: new FixedWindowRateLimiter(config.ticketRateLimit),
     ice: new FixedWindowRateLimiter(config.iceRateLimit),
   },
+  usage: PeerovoUsageTracker = createPeerovoUsageTracker(config.projects.keys()),
 ): express.Express {
   const app = express();
   app.disable("x-powered-by");
@@ -206,6 +211,8 @@ export function createApiApp(
     requireJsonBody,
     validateProjectKey(config),
     (request, response) => {
+      const projectId = request.params.projectId;
+      if (projectId) usage.recordTicketRequest(projectId);
       if (
         !applyRateLimit(
           rateLimiters.tickets,
@@ -215,10 +222,10 @@ export function createApiApp(
           `ticket:${request.params.projectId}`,
         )
       ) {
+        if (projectId) usage.recordRateLimited("ticket", projectId);
         return;
       }
 
-      const projectId = request.params.projectId;
       const sessionId = request.params.sessionId;
       const peerId = (request.body as Record<string, unknown> | undefined)?.peerId;
       const ttlSeconds = parseTicketLifetime(request.body);
@@ -241,6 +248,7 @@ export function createApiApp(
           ttlSeconds,
           secret: config.signingSecret,
         });
+        usage.recordTicketIssued(projectId);
         response.status(201).json({
           projectId,
           sessionId,
@@ -277,11 +285,15 @@ export function createApiApp(
         sendError(response, 403, GENERIC_FORBIDDEN.error);
         return;
       }
+      usage.recordIceConfigRequest(projectId);
       if (!applyRateLimit(rateLimiters.ice, config, request, response, "ice")) {
+        usage.recordRateLimited("ice", projectId);
         return;
       }
 
-      response.json(createIceConfig(claims, config));
+      const iceConfig = createIceConfig(claims, config);
+      usage.recordIceConfigIssued(projectId);
+      response.json(iceConfig);
     },
   );
 

@@ -20,10 +20,12 @@ function ownerKey(peerId: string, ownerId: string): string {
 
 export function createPeerCapacityStore({
   maxPeersPerSession,
+  maxPeersPerProject,
   leaseMs = PEER_CAPACITY_LEASE_MS,
   clock = Date.now,
 }: {
   maxPeersPerSession: number;
+  maxPeersPerProject: number | ((projectId: string) => number);
   leaseMs?: number;
   clock?: () => number;
 }) {
@@ -43,6 +45,22 @@ export function createPeerCapacityStore({
     return peers;
   }
 
+  function activeProjectCount(projectId: string, now: number): number {
+    let count = 0;
+    const prefix = `${projectId}\u0000`;
+    for (const key of peersBySession.keys()) {
+      if (!key.startsWith(prefix)) continue;
+      count += getActivePeers(key, now)?.size ?? 0;
+    }
+    return count;
+  }
+
+  function projectLimit(projectId: string): number {
+    return typeof maxPeersPerProject === "function"
+      ? maxPeersPerProject(projectId)
+      : maxPeersPerProject;
+  }
+
   return {
     async acquire(
       projectId: string,
@@ -60,7 +78,12 @@ export function createPeerCapacityStore({
           existingMember !== member && lease.peerId === peerId,
       );
 
-      if (!alreadyOwned && (duplicatePeer || peers.size >= maxPeersPerSession)) {
+      if (
+        !alreadyOwned &&
+        (duplicatePeer ||
+          peers.size >= maxPeersPerSession ||
+          activeProjectCount(projectId, now) >= projectLimit(projectId))
+      ) {
         return false;
       }
 
@@ -104,6 +127,10 @@ export function createPeerCapacityStore({
 
     activeCount(projectId: string, sessionId: string): number {
       return getActivePeers(sessionKey(projectId, sessionId), clock())?.size ?? 0;
+    },
+
+    activeCountForProject(projectId: string): number {
+      return activeProjectCount(projectId, clock());
     },
   };
 }

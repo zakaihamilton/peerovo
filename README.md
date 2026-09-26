@@ -21,15 +21,19 @@ The local API and PeerJS signaling listener share port `9000`. Open `http://loca
 
 ## API and security contract
 
-See [`docs/api-contract.md`](docs/api-contract.md) for the endpoint shapes, token claims, PeerJS handshake, TURN credential lifetime, rate limits, and the behavioral findings taken from HostPresent. See [`SECURITY.md`](SECURITY.md) for deployment and secret-handling requirements.
+See [`docs/api-contract.md`](docs/api-contract.md) for endpoint shapes, token claims, the PeerJS handshake, TURN credential lifetime, rate limits, and operational behavior. See [`SECURITY.md`](SECURITY.md) for deployment and secret-handling requirements.
 
 Projects can be provisioned in `PEEROVO_PROJECTS_JSON` or with a dedicated variable pair per project. Project API keys are server-only and authorize ticket issuance. The browser receives a peer ticket from its application backend, then uses that ticket for both PeerJS signaling and its ICE configuration request.
+
+Peerovo writes a periodic, secret-free JSON usage summary to its service logs, grouped by project. `PEEROVO_MAX_PEERS_PER_PROJECT` defaults to 60; a project can override it with `maxPeers` in `PEEROVO_PROJECTS_JSON` or `PEEROVO_PROJECT_<SLUG>_MAX_PEERS`. These counters cover Peerovo requests and signaling only. Relayed media traffic must be measured at coturn.
 
 The in-memory signaling peer registry, admission leases, and rate limits require a single Peerovo replica. Put the service behind a TLS-enabled WebSocket proxy in production. Configure the proxy to redact `token` from PeerJS WebSocket access logs.
 
 ## Adding projects
 
 For each additional application, see [docs/adding-projects.md](docs/adding-projects.md). It explains how to generate a project key and add independent project variables without replacing the existing project registry.
+
+For relay bandwidth monitoring and coturn's available limits, see [docs/turn-usage-monitoring.md](docs/turn-usage-monitoring.md).
 
 ## Commands
 
