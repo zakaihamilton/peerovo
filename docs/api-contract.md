@@ -119,7 +119,9 @@ The TURN username/credential pair is generated with coturn's REST HMAC-SHA1 sche
 
 ### PeerJS signaling upgrade
 
-The PeerJS signaling WebSocket uses the configured PeerJS base path and its standard `/peerjs` endpoint. The upgrade must contain exactly one each of `id`, `token`, and `key`. Peerovo verifies the public key, token signature, audience, expiry, project/session claims, and exact peer ID before reserving session capacity.
+The PeerJS signaling WebSocket uses the configured PeerJS base path and its standard `/peerjs` endpoint. The upgrade must contain exactly one each of `id`, `token`, and `key`. Peerovo verifies the public key, token signature, audience, expiry, project/session claims, and exact peer ID before reserving session capacity. Capacity is owned by the ticket's unique `jti`, so reconnecting with the same ticket can reclaim its existing peer slot while an old socket is still timing out.
+
+On graceful service shutdown, Peerovo closes active signaling sockets with WebSocket close code `1012` (`Service Restart`) and gives them up to five seconds to close before terminating stragglers. PeerJS clients can then reconnect through their normal signaling reconnect flow.
 
 PeerJS carries the ticket in the WebSocket query string for protocol compatibility. Reverse proxies must redact `token` from access logs. HTTP API tokens are accepted only through `Authorization` headers, never query parameters.
 

@@ -1,4 +1,3 @@
-import { randomUUID } from "node:crypto";
 import type { IncomingMessage } from "node:http";
 import {
   isPeerAuthorizedForClaims,
@@ -40,13 +39,13 @@ export function createUpgradeAuthorizer({
   config,
   capacity,
   limiter,
-  createOwnerId = randomUUID,
+  createOwnerId = (claims) => claims.jti,
   clock = Date.now,
 }: {
   config: PeerovoConfig;
   capacity: PeerCapacity;
   limiter: FixedWindowRateLimiter;
-  createOwnerId?: () => string;
+  createOwnerId?: (claims: PeerClaims) => string;
   clock?: () => number;
 }) {
   return (info: UpgradeInfo, callback: UpgradeCallback): void => {
@@ -101,7 +100,10 @@ export function createUpgradeAuthorizer({
         return;
       }
 
-      const ownerId = createOwnerId();
+      // A PeerJS client reconnects with the same signed ticket. Reuse its
+      // unique ticket ID as the admission owner so a short network drop can
+      // reclaim the existing peer slot before the old socket times out.
+      const ownerId = createOwnerId(claims);
       let admitted: boolean;
       try {
         admitted = await capacity.acquire(

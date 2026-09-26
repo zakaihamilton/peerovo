@@ -1,6 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { ExpressPeerServer, type IClient, type PeerServerEvents } from "peer";
-import { type WebSocket, WebSocketServer } from "ws";
+import { WebSocket, WebSocketServer } from "ws";
 import {
   isPeerAuthorizedForClaims,
   type PeerClaims,
@@ -36,6 +36,33 @@ interface ActiveSession {
   peers: Map<string, ActivePeer>;
 }
 
+const SERVICE_RESTART_CLOSE_CODE = 1012;
+const SOCKET_DRAIN_TIMEOUT_MS = 5_000;
+
+function waitForSocketDrain(
+  sockets: WebSocket[],
+  timeoutMs: number,
+): Promise<void> {
+  const pending = sockets.filter(
+    (socket) => socket.readyState !== WebSocket.CLOSED,
+  );
+  if (pending.length === 0) return Promise.resolve();
+
+  return new Promise((resolve) => {
+    let remaining = pending.length;
+    const timeout = setTimeout(resolve, timeoutMs);
+    for (const socket of pending) {
+      socket.once("close", () => {
+        remaining -= 1;
+        if (remaining === 0) {
+          clearTimeout(timeout);
+          resolve();
+        }
+      });
+    }
+  });
+}
+
 function activeSessionKey(projectId: string, sessionId: string): string {
   return `${projectId}\u0000${sessionId}`;
 }
@@ -60,6 +87,7 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
     capacity,
     limiter: signalingRateLimiter,
   });
+  let peerWebSocketServer: WebSocketServer | null = null;
 
   const peerServer = ExpressPeerServer(server, {
     key: config.key,
@@ -81,6 +109,7 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
           (socket as PeerovoWebSocket).peerovoAdmission = admission;
         }
       });
+      peerWebSocketServer = webSocketServer;
       return webSocketServer;
     },
   });
@@ -106,6 +135,14 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
         claims,
       )
     ) {
+      if (admission) {
+        void capacity.release(
+          admission.claims.projectId,
+          admission.claims.sessionId,
+          admission.claims.peerId,
+          admission.ownerId,
+        ).catch(() => {});
+      }
       socket?.close(1011, "Peer admission is invalid");
       return;
     }
@@ -129,7 +166,7 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
       renewalFailures: 0,
     };
     activeSession.peers.set(client.getId(), entry);
-    if (previous) {
+    if (previous && previous.ownerId !== entry.ownerId) {
       void capacity
         .release(
           previous.claims.projectId,
@@ -217,22 +254,55 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
   }, PEER_CAPACITY_RENEW_INTERVAL_MS);
   renewalTimer.unref?.();
 
+  let closePromise: Promise<void> | null = null;
+
   return {
     app,
     server,
     peerServer,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
+    close: () => {
+      if (closePromise) return closePromise;
+
+      closePromise = (async () => {
         clearInterval(renewalTimer);
-        if (!server.listening) {
-          resolve();
-          return;
+
+        const sockets = [...(peerWebSocketServer?.clients ?? [])];
+        const peerWebSocketServerClosed = peerWebSocketServer
+          ? new Promise<void>((resolve, reject) => {
+              peerWebSocketServer?.close((error) => {
+                if (error) reject(error);
+                else resolve();
+              });
+            })
+          : Promise.resolve();
+        const httpServerClosed = server.listening
+          ? new Promise<void>((resolve, reject) => {
+              server.close((error) => {
+                if (error) reject(error);
+                else resolve();
+              });
+            })
+          : Promise.resolve();
+
+        server.closeIdleConnections?.();
+        for (const socket of sockets) {
+          if (socket.readyState === WebSocket.OPEN) {
+            socket.close(SERVICE_RESTART_CLOSE_CODE, "Service restart");
+          } else if (socket.readyState === WebSocket.CONNECTING) {
+            socket.terminate();
+          }
         }
-        server.close((error) => {
-          if (error) reject(error);
-          else resolve();
-        });
-      }),
+
+        await waitForSocketDrain(sockets, SOCKET_DRAIN_TIMEOUT_MS);
+        for (const socket of sockets) {
+          if (socket.readyState !== WebSocket.CLOSED) socket.terminate();
+        }
+
+        await Promise.all([peerWebSocketServerClosed, httpServerClosed]);
+      })();
+
+      return closePromise;
+    },
   };
 }
 
@@ -269,7 +339,16 @@ async function main(): Promise<void> {
   );
 
   const shutdown = () => {
-    void runtime.close().finally(() => process.exit(0));
+    process.stdout.write(
+      "[peerovo] closing active signaling connections for restart\n",
+    );
+    void runtime.close().then(
+      () => process.exit(0),
+      () => {
+        process.stderr.write("[peerovo] graceful shutdown failed\n");
+        process.exit(1);
+      },
+    );
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
