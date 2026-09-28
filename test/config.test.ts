@@ -5,12 +5,10 @@ import { loadConfig } from "../src/config/config.js";
 function validEnvironment(): NodeJS.ProcessEnv {
   return {
     PEEROVO_SIGNING_SECRET: "s".repeat(48),
-    PEEROVO_PROJECTS_JSON: JSON.stringify({
-      sample: {
-        apiKey: "k".repeat(48),
-        allowedOrigins: ["https://app.example.test"],
-      },
-    }),
+    PEEROVO_PROJECT_SAMPLE_API_KEY: "k".repeat(48),
+    PEEROVO_PROJECT_SAMPLE_ALLOWED_ORIGINS: JSON.stringify([
+      "https://app.example.test",
+    ]),
     TURN_SECRET_KEY: "t".repeat(48),
     TURN_DOMAIN: "turn.example.test",
   };
@@ -33,7 +31,7 @@ test("loads safe service and project defaults", () => {
   );
 });
 
-test("adds projects with dedicated variables alongside the existing JSON", () => {
+test("adds another project with dedicated variables", () => {
   const env = validEnvironment();
   env.PEEROVO_PROJECT_MY_NEW_APP_API_KEY = "n".repeat(48);
   env.PEEROVO_PROJECT_MY_NEW_APP_ALLOWED_ORIGINS = JSON.stringify([
@@ -53,28 +51,17 @@ test("adds projects with dedicated variables alongside the existing JSON", () =>
   assert.ok(projects.has("sample"));
 });
 
-test("supports project-specific variables without the JSON registry", () => {
+test("requires at least one complete project-specific variable pair", () => {
   const env = validEnvironment();
-  delete env.PEEROVO_PROJECTS_JSON;
-  env.PEEROVO_PROJECT_ANALYTICS_API_KEY = "a".repeat(48);
-  env.PEEROVO_PROJECT_ANALYTICS_ALLOWED_ORIGINS = JSON.stringify([
-    "https://analytics.example.test",
-  ]);
-
-  assert.deepEqual([...loadConfig(env).projects.keys()], ["analytics"]);
+  delete env.PEEROVO_PROJECT_SAMPLE_API_KEY;
+  delete env.PEEROVO_PROJECT_SAMPLE_ALLOWED_ORIGINS;
+  assert.throws(() => loadConfig(env), /at least one project/);
 });
 
-test("rejects incomplete, duplicate, and malformed project variables", () => {
+test("rejects incomplete and malformed project variables", () => {
   const incomplete = validEnvironment();
   incomplete.PEEROVO_PROJECT_EXTRA_API_KEY = "e".repeat(48);
   assert.throws(() => loadConfig(incomplete), /must set both/);
-
-  const duplicate = validEnvironment();
-  duplicate.PEEROVO_PROJECT_SAMPLE_API_KEY = "d".repeat(48);
-  duplicate.PEEROVO_PROJECT_SAMPLE_ALLOWED_ORIGINS = JSON.stringify([
-    "https://other.example.test",
-  ]);
-  assert.throws(() => loadConfig(duplicate), /configured both/);
 
   const malformedOrigins = validEnvironment();
   malformedOrigins.PEEROVO_PROJECT_EXTRA_API_KEY = "e".repeat(48);
@@ -92,36 +79,21 @@ test("rejects weak secrets and invalid project configuration", () => {
   assert.throws(() => loadConfig(shortTurnSecret), /TURN_SECRET_KEY/);
 
   const badOrigins = validEnvironment();
-  badOrigins.PEEROVO_PROJECTS_JSON = JSON.stringify({
-    sample: {
-      apiKey: "k".repeat(48),
-      allowedOrigins: ["https://app.example.test/path"],
-    },
-  });
+  badOrigins.PEEROVO_PROJECT_SAMPLE_ALLOWED_ORIGINS = JSON.stringify([
+    "https://app.example.test/path",
+  ]);
   assert.throws(() => loadConfig(badOrigins), /exact HTTP origins/);
 });
 
-test("supports project-specific peer caps in the JSON registry", () => {
+test("supports project-specific peer caps", () => {
   const env = validEnvironment();
-  env.PEEROVO_PROJECTS_JSON = JSON.stringify({
-    sample: {
-      apiKey: "k".repeat(48),
-      allowedOrigins: ["https://app.example.test"],
-      maxPeers: 18,
-    },
-  });
+  env.PEEROVO_PROJECT_SAMPLE_MAX_PEERS = "18";
   assert.equal(loadConfig(env).projects.get("sample")?.maxPeers, 18);
 });
 
 test("rejects out-of-range project peer caps and usage log intervals", () => {
   const badProjectCap = validEnvironment();
-  badProjectCap.PEEROVO_PROJECTS_JSON = JSON.stringify({
-    sample: {
-      apiKey: "k".repeat(48),
-      allowedOrigins: ["https://app.example.test"],
-      maxPeers: 501,
-    },
-  });
+  badProjectCap.PEEROVO_PROJECT_SAMPLE_MAX_PEERS = "501";
   assert.throws(() => loadConfig(badProjectCap), /maxPeers must be an integer/);
 
   const badLogInterval = validEnvironment();

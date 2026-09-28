@@ -134,7 +134,7 @@ Verification rejects malformed or extra token segments, invalid signatures, wron
 - HTTP responses use `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and a restrictive content security policy.
 - The JSON request limit is 2 KiB. Ticket, ICE, and signaling upgrade requests have per-IP, per-process fixed-window limits; ticket and ICE defaults are 120/minute.
 - `PEEROVO_MAX_PEERS_PER_SESSION` defaults to 30 concurrent peers. Each signaling admission is reserved with a 30-second lease and renewed every 8 seconds. A lost lease closes the peer immediately; three consecutive renewal errors close it while leaving time for the lease to expire.
-- Each project has its own concurrent-peer cap. `PEEROVO_MAX_PEERS_PER_PROJECT` defaults to 60; a project may override it with `maxPeers` in `PEEROVO_PROJECTS_JSON` or `PEEROVO_PROJECT_<SLUG>_MAX_PEERS`. The cap counts active admission leases across the project's sessions and does not combine separate projects.
+- Each project has its own concurrent-peer cap. `PEEROVO_MAX_PEERS_PER_PROJECT` defaults to 60; a project may override it with `PEEROVO_PROJECT_<SLUG>_MAX_PEERS`. The cap counts active admission leases across the project's sessions and does not combine separate projects.
 - PeerJS's global concurrent signaling limit defaults to 5,000. Signaling payloads are capped at 256 KiB and WebSocket compression is disabled.
 - Local rate limits are process-local, so keep one replica and use the deployment firewall for edge-wide rate limits.
 
@@ -158,19 +158,15 @@ These summaries measure Peerovo API/signaling load, not TURN bandwidth. WebRTC m
 See `.env.example` for a complete local template. Required production values are:
 
 - `PEEROVO_SIGNING_SECRET`
-- `PEEROVO_PROJECTS_JSON` or at least one complete project-specific variable pair
+- At least one complete project-specific API-key and allowed-origins variable pair
 - `TURN_DOMAIN`
 - `TURN_SECRET_KEY`
 - `PEEROVO_PUBLIC_HOST` and the browser-facing port/security settings
 
-`PEEROVO_PROJECTS_JSON` is an object keyed by project ID. Each project has an `apiKey` (at least 32 characters) and an `allowedOrigins` array of exact HTTP origins, for example:
+Each project must have a dedicated `PEEROVO_PROJECT_<SLUG>_API_KEY` and `PEEROVO_PROJECT_<SLUG>_ALLOWED_ORIGINS` variable. The API key must contain at least 32 bytes. The allowed-origins value is a JSON array of exact HTTP origins. A project may optionally set `PEEROVO_PROJECT_<SLUG>_MAX_PEERS` from 1 to 500. For example:
 
-```json
-{
-  "sample-project": {
-    "apiKey": "<server-only-project-secret>",
-    "allowedOrigins": ["https://app.example.com"],
-    "maxPeers": 60
-  }
-}
+```dotenv
+PEEROVO_PROJECT_SAMPLE_API_KEY=<server-only-project-secret>
+PEEROVO_PROJECT_SAMPLE_ALLOWED_ORIGINS=["https://app.example.com"]
+PEEROVO_PROJECT_SAMPLE_MAX_PEERS=60
 ```
