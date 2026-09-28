@@ -42,7 +42,7 @@ The API key is shown only by the command. Copy it directly into the secret store
 ## 3. Register the project on the Peerovo service
 
 1. In the Peerovo service's Railway Variables page, add the generated API key, origins JSON, and optional peer cap.
-2. Configure each project with its own complete API-key and allowed-origins variable pair. Peerovo rejects incomplete pairs and duplicate project IDs.
+2. Configure each project with its own complete API-key and allowed-origins variable pair. Choose a unique project ID for each application; Peerovo rejects incomplete pairs at startup.
 3. Apply the variables and wait for Railway to restart the service. Check startup/health logs for configuration errors without copying secret values into logs or chat.
 4. Keep Peerovo at one replica. Its signaling registry, admission leases, and rate-limit counters are process-local.
 
@@ -53,12 +53,12 @@ The allowed-origins variable is not secret, but it is security-sensitive configu
 In the new application's server-side environment, set:
 
 ```dotenv
-PEEROVO_API_URL=https://<peerovo-public-host>
+PEEROVO_API_URL=https://peerovo.up.railway.app
 PEEROVO_PROJECT_ID=my-new-app
 PEEROVO_PROJECT_API_KEY=<same-generated-secret>
 ```
 
-Use the Peerovo public HTTPS origin only—no `/v1` suffix, path, query, or trailing route. In production, use HTTPS. Add the API key to each deployment environment that needs it (for example, Vercel Production and Preview), and redeploy or restart the application after changing environment variables. Keep the variable server-side; do not prefix it with `NEXT_PUBLIC_`.
+`https://peerovo.up.railway.app` is the production Peerovo service. Use this same URL in the application's ignored local `.env` and its deployed server-side environments when local and remote projects should both connect to production Peerovo. Use only the Peerovo public HTTPS origin—no `/v1` suffix, path, query, or trailing route. Add the API key to each deployment environment that needs it (for example, Vercel Production and Preview), and redeploy or restart the application after changing environment variables. Keep the variable server-side; do not prefix it with `NEXT_PUBLIC_`.
 
 For local development, put these values in an ignored `.env` file. Keep placeholders only in `.env.example`. Give each application a different project key. Peerovo's global signing and TURN secrets remain on the Peerovo service; a new application does not need its own copy of them.
 
@@ -84,9 +84,9 @@ Peerovo applies its own per-process API and signaling limits. Add a shared edge 
 For an application using Vercel's `@vercel/firewall` SDK:
 
 - Create one Firewall rule for each rate-limit ID the code calls.
-- Make the first condition `@vercel/firewall` and enter the exact ID from the code. Keep the intended fixed-window threshold and `429` action.
-- Do not add ordinary Request Path or Method conditions for the application's API route to this rule. The SDK checks a special `/.well-known/vercel/rate-limit-api/{id}` endpoint; those route filters can block the SDK check and make the ID appear unconfigured. Keep the SDK rule limited to its `@vercel/firewall` ID unless additional conditions have been tested against the SDK's forwarded request headers.
-- Publish the rules to every environment where the code calls the SDK. A missing ID makes a fail-closed application return `503`.
+- Add `@vercel/firewall` as a rule condition and use the exact rate-limit ID from the code. Configure the intended threshold, window, and response action.
+- Follow Vercel's [Rate Limiting SDK setup](https://vercel.com/docs/vercel-firewall/vercel-waf/rate-limiting-sdk) for preview deployments and environment requirements. Publish and verify the rule in every environment where the code calls the SDK.
+- Match the app's behavior when the rate-limit ID is missing or the check fails. Some backends fail closed with `503`; the response is application-specific.
 
 If the application runs outside Vercel, configure an equivalent shared edge limiter for its ticket-minting and room/session routes. Follow that application's deployment guide for any provider-specific flag; do not substitute an instance-local counter in a serverless deployment.
 
@@ -105,21 +105,12 @@ Exercise rate-limit boundaries with invalid, non-mutating payloads in a non-prod
 
 ## ShiftingFront reference
 
-ShiftingFront uses project ID `shiftingfront` and production origin `https://www.shiftingfront.com`. Its Vercel backend uses `PEEROVO_API_URL`, `PEEROVO_PROJECT_ID`, and `PEEROVO_PROJECT_API_KEY`; secrets stay in server-side Vercel environment variables. Its Vercel WAF limits are fixed-window limits per IP:
-
-| Rate-limit ID | Endpoint | Limit |
-| --- | --- | ---: |
-| `shiftingfront-multiplayer-room-create` | `POST /api/multiplayer/rooms` | 10 per 10 minutes |
-| `shiftingfront-multiplayer-room-join` | `POST /api/multiplayer/rooms/join` | 20 per minute |
-| `shiftingfront-multiplayer-handshake` | `POST /api/multiplayer/handshake` | 60 per minute |
-| `shiftingfront-multiplayer-peer-credentials` | `POST /api/multiplayer/peer-credentials` | 120 per minute |
-
-These IDs and limits live in ShiftingFront's code and its Vercel Firewall configuration. Reuse the pattern for another application, but choose unique IDs and limits that match that application's endpoints and traffic.
+ShiftingFront uses project ID `shiftingfront` and production origin `https://www.shiftingfront.com`. Its Vercel backend uses `PEEROVO_API_URL`, `PEEROVO_PROJECT_ID`, and `PEEROVO_PROJECT_API_KEY`; secrets stay in server-side Vercel environment variables. For its current rate-limit IDs, thresholds, and deployment steps, see ShiftingFront's [multiplayer security runbook](https://github.com/zakaihamilton/shiftingfront/blob/master/docs/multiplayer-security.md). Use unique rate-limit IDs and limits that match each new application's endpoints and traffic.
 
 ## Troubleshooting
 
 - **Peerovo rejects the project key:** verify the project ID, API key, and slug-derived Railway variable names match. Confirm the service restarted after the variables were applied.
 - **ICE fails only in the browser:** check the browser's exact `Origin` against the project's allowed-origins JSON. Include the scheme and hostname; no path or trailing slash.
 - **Application reports Peerovo unavailable:** check `PEEROVO_API_URL` is the HTTPS origin without `/v1`, and inspect service health without logging credentials.
-- **Vercel returns `503` for a rate-limit check:** confirm each code ID exists in a published `@vercel/firewall` rule. Remove Request Path/Method filters from SDK rules, then retest with a normal request.
+- **Application returns `503` for a rate-limit check:** confirm each code ID exists in the right Vercel environment and follow the SDK's preview or production setup requirements. Check the application's fail-closed behavior and logs without exposing credentials.
 - **Signaling is admitted but peers cannot exchange media:** inspect browser ICE candidate state and coturn reachability/credentials. Peerovo's logs do not include relayed media traffic; monitor coturn separately.
