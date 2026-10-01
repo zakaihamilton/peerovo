@@ -37,5 +37,8 @@
   },
   "workspaces": [
     "packages/*"
-  ]
+  ],
+  "exports": {
+    "./test": "./packages/test/src/index.js"
+  }
 }
