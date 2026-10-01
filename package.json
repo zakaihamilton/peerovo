@@ -15,8 +15,9 @@
     "lint": "biome check .",
     "format": "biome format --write .",
     "test": "node --import tsx --test test/*.test.ts",
-    "verify": "npm run test && npm run lint && npm run typecheck && npm run build && npm run health",
-    "health": "repnix check"
+    "verify": "npm run test && npm run lint && npm run typecheck && npm run typecheck:test-package && npm run build && npm run health",
+    "health": "repnix check",
+    "typecheck:test-package": "tsc --noEmit -p packages/test/tsconfig.json"
   },
   "dependencies": {
     "express": "4.22.3",
@@ -31,6 +32,10 @@
     "@types/ws": "8.18.1",
     "repnix": "^0.3.14",
     "tsx": "4.23.12",
-    "typescript": "6.0.2"
-  }
+    "typescript": "6.0.2",
+    "@playwright/test": "^1.51.1"
+  },
+  "workspaces": [
+    "packages/*"
+  ]
 }
