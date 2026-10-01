@@ -37,6 +37,10 @@ For each additional application, see [docs/adding-projects.md](docs/adding-proje
 
 For relay bandwidth monitoring and coturn's available limits, see [docs/turn-usage-monitoring.md](docs/turn-usage-monitoring.md).
 
+## Testing applications
+
+Peerovo includes an application-agnostic Playwright helper under `packages/test` for tests that need multiple independent browser clients. See [the multi-client testing guide](docs/testing.md) for host/player examples and the separate deployed TURN smoke-test strategy.
+
 ## Commands
 
 ```sh
