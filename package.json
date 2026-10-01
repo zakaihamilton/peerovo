@@ -29,7 +29,7 @@
     "@types/express": "4.17.25",
     "@types/node": "22.19.1",
     "@types/ws": "8.18.1",
-    "repnix": "^0.3.14",
+    "repnix": "^1.0.4",
     "tsx": "4.23.12",
     "typescript": "6.0.2"
   }
