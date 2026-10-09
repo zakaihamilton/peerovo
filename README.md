@@ -1,47 +1,65 @@
-# Peerovo
+<div align="center">
+  <img src="assets/peerovo-logo.png" alt="Peerovo" width="520" />
 
-Peerovo is shared WebRTC connectivity infrastructure for applications. It provides authenticated PeerJS signaling, ICE configuration, and short-lived coturn REST credentials around the core hierarchy:
+  <h1>WebRTC connectivity for every app you build</h1>
+
+  <p>One shared service for PeerJS signaling, session-bound peer tickets, and short-lived ICE credentials.</p>
+
+  <p><a href="docs/adding-projects.md">Connect an application →</a> · <a href="https://peerovo.up.railway.app/v1/config">View the hosted service config</a></p>
+</div>
+
+Peerovo gives application backends a consistent way to connect users they've authorized across WebRTC sessions. Your backend authenticates users and decides who may join; Peerovo issues signed peer tickets, admits signaling connections, and returns ICE configuration.
+
+## Why Peerovo
+
+- **Connect multiple applications through one service.** Keep each app's projects, sessions, and peers namespaced and independently configured.
+- **Keep access decisions in your app.** Your backend requests signed, time-limited tickets bound to a project, session, and exact peer ID. Project keys stay on your server; browsers receive only the peer ticket.
+- **Give browsers the ICE settings they need.** Peerovo returns public STUN settings and short-lived coturn REST credentials for TURN relay when a direct connection is unavailable.
+- **See service activity by project.** Secret-free usage summaries report ticket, ICE, signaling, capacity, and admission counts. TURN media bandwidth is measured on the coturn host.
+
+## How it works
 
 ```text
-Project → Session → Peer
+Your app backend ── project key ──▶ Peerovo
+       │                            │
+       └── peer ticket ──▶ Browser ◀── ICE config + PeerJS signaling
 ```
 
-Peerovo handles connectivity and identity checks. Each application remains responsible for deciding whether a user may enter one of its sessions and which peer ID that user may claim.
+1. Your backend authenticates the user and authorizes access to the session.
+2. It requests a peer ticket from Peerovo with the authorized session and peer ID.
+3. The browser uses that ticket for PeerJS signaling and to request ICE settings. Coturn relays media when WebRTC selects a TURN route.
 
-## Run locally
+Your application remains responsible for user authentication, room membership, and which peer IDs users may claim. Peerovo checks that each ticket matches the project, session, and peer attempting to connect.
 
-Use Node.js 22.9 or newer. Copy `.env.example` to `.env`, replace every sample secret with a separate random secret of at least 32 bytes, and set the TURN host and secret for a reachable coturn server.
+## Connect an application
+
+The hosted service's production API origin is `https://peerovo.up.railway.app` ([public client config](https://peerovo.up.railway.app/v1/config)). Follow the [application onboarding guide](docs/adding-projects.md) to register a project, set its allowed browser origins, and connect your backend and browser. It includes the ticket request flow, deployment variables, and staging verification steps.
+
+## Run locally or self-host
+
+Use Node.js 22.9 or newer. Copy `.env.example` to `.env`, replace each sample secret with a separate random secret of at least 32 bytes, and configure a reachable coturn server.
 
 ```sh
 npm install
 npm run dev
 ```
 
-The local API and PeerJS signaling listener share port `9000`. Open `http://localhost:9000/v1/config` for the client connection settings.
+The local API and PeerJS signaling listener share port `9000`. Open [`http://localhost:9000/v1/config`](http://localhost:9000/v1/config) for the client connection settings.
 
-## API and security contract
+For production, run one Peerovo replica because the signaling registry, admission leases, and rate limits are held in process memory. Put the service behind a TLS-enabled WebSocket proxy and redact the PeerJS `token` query parameter from proxy logs.
 
-See [`docs/api-contract.md`](docs/api-contract.md) for endpoint shapes, token claims, the PeerJS handshake, TURN credential lifetime, rate limits, and operational behavior. See [`SECURITY.md`](SECURITY.md) for deployment and secret-handling requirements.
+## Documentation
 
-Each project is configured with a dedicated API-key and allowed-origins variable pair. Project API keys are server-only and authorize ticket issuance. The browser receives a peer ticket from its application backend, then uses that ticket for both PeerJS signaling and its ICE configuration request.
-
-Peerovo writes a periodic, secret-free JSON usage summary to its service logs, grouped by project. `PEEROVO_MAX_PEERS_PER_PROJECT` defaults to 60; a project can override it with `PEEROVO_PROJECT_<SLUG>_MAX_PEERS`. These counters cover Peerovo requests and signaling only. Relayed media traffic must be measured at coturn.
-
-For connection troubleshooting, `PEEROVO_PEERJS_DEBUG=3` enables PeerJS browser-console diagnostics, and service summaries include reason counts for signaling and admission failures. See the [connection troubleshooting guide](docs/api-contract.md#troubleshooting-connections) for checks and safe logging guidance.
-
-The in-memory signaling peer registry, admission leases, and rate limits require a single Peerovo replica. Put the service behind a TLS-enabled WebSocket proxy in production. Configure the proxy to redact `token` from PeerJS WebSocket access logs.
-
-## Adding projects
-
-For each additional application, see [docs/adding-projects.md](docs/adding-projects.md). It explains how to generate a project key and configure its independent project variables.
-
-For relay bandwidth monitoring and coturn's available limits, see [docs/turn-usage-monitoring.md](docs/turn-usage-monitoring.md).
+- [Application onboarding](docs/adding-projects.md) — project setup and integration flow
+- [API and security contract](docs/api-contract.md) — endpoints, ticket claims, limits, and troubleshooting
+- [Deployment security](SECURITY.md) — secrets, proxy, and production requirements
+- [TURN usage monitoring](docs/turn-usage-monitoring.md) — coturn relay bandwidth and limits
 
 ## Testing applications
 
 Peerovo includes an application-agnostic Playwright helper under `packages/test` for tests that need multiple independent browser clients. See [the multi-client testing guide](docs/testing.md) for host/player examples and the separate deployed TURN smoke-test strategy.
 
-## Commands
+## Development
 
 ```sh
 npm test
@@ -52,4 +70,4 @@ npm run health
 npm run verify
 ```
 
-`npm run health` runs the RepNix repository health check. `npm run verify` runs tests, lint, type checking, the production build, and RepNix.
+`npm run health` runs the repository health check. `npm run verify` runs tests, lint, type checking, the production build, and the health check.
