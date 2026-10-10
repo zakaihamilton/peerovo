@@ -18,7 +18,9 @@ export interface CreateClientsOptions {
 export function createPeerovoTest(browser: Browser, options: PeerovoTestOptions) {
   const baseURL = new URL(options.baseURL);
 
-  async function client(createOptions: CreateClientsOptions = {}): Promise<PeerovoClient> {
+  async function client(
+    createOptions: CreateClientsOptions = {},
+  ): Promise<PeerovoClient> {
     const context = await browser.newContext(createOptions.context);
     const page = await context.newPage();
 

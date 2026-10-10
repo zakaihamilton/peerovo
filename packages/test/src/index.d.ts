@@ -6,7 +6,9 @@ export interface PeerovoClient {
   open(path?: string): Promise<void>;
   close(): Promise<void>;
 }
-export interface PeerovoTestOptions { baseURL: string; }
+export interface PeerovoTestOptions {
+  baseURL: string;
+}
 export interface CreateClientsOptions {
   context?: Parameters<Browser["newContext"]>[0];
 }

@@ -155,9 +155,7 @@ function parseProjectConfig(
 
   const maxPeers = maxPeersRaw === undefined ? defaultMaxPeers : Number(maxPeersRaw);
   if (!Number.isInteger(maxPeers) || maxPeers < 1 || maxPeers > 500) {
-    throw new Error(
-      `Project ${projectId} maxPeers must be an integer from 1 to 500.`,
-    );
+    throw new Error(`Project ${projectId} maxPeers must be an integer from 1 to 500.`);
   }
 
   return { apiKey, allowedOrigins, maxPeers };
