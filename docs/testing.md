@@ -53,7 +53,7 @@ The helper deliberately does not know an application's UI, session-code format, 
 
 Keep three layers separate:
 
-1. Run Peerovo's normal unit/integration tests with `npm test`. These should remain fast and deterministic.
+1. Run Peerovo's normal unit/integration tests with `pnpm test`. These should remain fast and deterministic.
 2. Run application multi-client Playwright tests against local Peerovo signaling and normal WebRTC. These exercise the real browser integration.
 3. Run a smaller deployed TURN smoke suite separately. Configure those tests to force relay candidates (`iceTransportPolicy: "relay"`) and assert that the WebRTC connection succeeds. This verifies deployed Peerovo credentials, ICE configuration, coturn reachability, and relay behavior without making every CI test depend on external infrastructure.
 

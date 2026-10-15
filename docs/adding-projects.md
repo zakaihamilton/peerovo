@@ -23,7 +23,7 @@ The project API key is a server-side credential. Never put it in browser code, a
 Run this from the Peerovo repository. Repeat `--origin` for every exact origin. Include `--max-peers` only when you want to override the default.
 
 ```sh
-npm run project:add -- --id my-new-app \
+pnpm run project:add -- --id my-new-app \
   --origin https://app.example.com \
   --origin http://localhost:3000 \
   --max-peers 40

@@ -40,8 +40,8 @@ The hosted service's production API origin is `https://peerovo.up.railway.app` (
 Use Node.js 22.9 or newer. Copy `.env.example` to `.env`, replace each sample secret with a separate random secret of at least 32 bytes, and configure a reachable coturn server.
 
 ```sh
-npm install
-npm run dev
+pnpm install
+pnpm run dev
 ```
 
 The local API and PeerJS signaling listener share port `9000`. Open [`http://localhost:9000/v1/config`](http://localhost:9000/v1/config) for the client connection settings.
@@ -62,12 +62,12 @@ Peerovo includes an application-agnostic Playwright helper under `packages/test`
 ## Development
 
 ```sh
-npm test
-npm run lint
-npm run typecheck
-npm run build
-npm run health
-npm run verify
+pnpm test
+pnpm run lint
+pnpm run typecheck
+pnpm run build
+pnpm run health
+pnpm run verify
 ```
 
-`npm run health` runs the repository health check. `npm run verify` runs tests, lint, type checking, the production build, and the health check.
+`pnpm run health` runs the repository health check. `pnpm run verify` runs tests, lint, type checking, the production build, and the health check.
