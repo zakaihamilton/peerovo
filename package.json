@@ -39,6 +39,12 @@
   "workspaces": [
     "packages/*"
   ],
+  "pnpm": {
+    "overrides": {
+      "body-parser": "1.20.9",
+      "zod": "4.6.6"
+    }
+  },
   "exports": {
     "./test": "./packages/test/src/index.js"
   }

@@ -50,11 +50,11 @@ Request:
 ```json
 {
   "peerId": "peer-3f437493-66ef-4713-a9e5-1d89cc7cc125",
-  "expiresInSeconds": 604800
+  "expiresInSeconds": 3600
 }
 ```
 
-`peerId` is required and must be 1–128 letters, numbers, dots, underscores, or hyphens. `expiresInSeconds` is optional and defaults to 604,800; the accepted range is 1–604,800 seconds. The application backend should set it no later than the expiry of its own user/session credential.
+`peerId` is required and must be 1–128 letters, numbers, dots, underscores, or hyphens. `expiresInSeconds` is optional and defaults to 3,600; the accepted range is 1–604,800 seconds. The application backend should set it no later than the expiry of its own user/session credential.
 No other JSON properties are accepted.
 
 Response (`201`):
@@ -100,7 +100,7 @@ The TURN username/credential pair is generated with coturn's REST HMAC-SHA1 sche
 
 ### PeerJS signaling upgrade
 
-The PeerJS signaling WebSocket uses the configured PeerJS base path and its standard `/peerjs` endpoint. The upgrade must contain exactly one each of `id`, `token`, and `key`. Peerovo verifies the public key, token signature, audience, expiry, project/session claims, and exact peer ID before reserving session capacity. Capacity is owned by the ticket's unique `jti`, so reconnecting with the same ticket can reclaim its existing peer slot while an old socket is still timing out.
+The PeerJS signaling WebSocket uses the configured PeerJS base path and its standard `/peerjs` endpoint. The upgrade must contain exactly one each of `id`, `token`, and `key`. Peerovo verifies the public key, token signature, audience, expiry, project/session claims, and exact peer ID before reserving session capacity. Capacity is owned by the ticket's unique `jti`, so reconnecting with the same ticket reuses its existing peer slot and closes the prior socket.
 
 On graceful service shutdown, Peerovo closes active signaling sockets with WebSocket close code `1012` (`Service Restart`) and gives them up to five seconds to close before terminating stragglers. PeerJS clients can then reconnect through their normal signaling reconnect flow.
 
@@ -132,7 +132,7 @@ Verification rejects malformed or extra token segments, invalid signatures, wron
 ## Health and abuse controls
 
 - HTTP responses use `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, and a restrictive content security policy.
-- The JSON request limit is 2 KiB. Ticket, ICE, and signaling upgrade requests have per-IP, per-process fixed-window limits; ticket and ICE defaults are 120/minute.
+- The JSON request limit is 2 KiB, and compressed HTTP request bodies are rejected. Ticket, ICE, and signaling upgrade requests have per-IP, per-process fixed-window limits; ticket and ICE defaults are 120/minute.
 - `PEEROVO_MAX_PEERS_PER_SESSION` defaults to 30 concurrent peers. Each signaling admission is reserved with a 30-second lease and renewed every 8 seconds. A lost lease closes the peer immediately; three consecutive renewal errors close it while leaving time for the lease to expire.
 - Each project has its own concurrent-peer cap. `PEEROVO_MAX_PEERS_PER_PROJECT` defaults to 60; a project may override it with `PEEROVO_PROJECT_<SLUG>_MAX_PEERS`. The cap counts active admission leases across the project's sessions and does not combine separate projects.
 - PeerJS's global concurrent signaling limit defaults to 5,000. Signaling payloads are capped at 256 KiB and WebSocket compression is disabled.

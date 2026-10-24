@@ -150,7 +150,7 @@ function parseTicketLifetime(body: unknown): number | null {
   ) {
     return null;
   }
-  const ttl = record.expiresInSeconds ?? 7 * 24 * 60 * 60;
+  const ttl = record.expiresInSeconds ?? 60 * 60;
   if (!Number.isInteger(ttl) || (ttl as number) < 1 || (ttl as number) > 604_800) {
     return null;
   }
@@ -172,6 +172,7 @@ export function createApiApp(
   app.use(
     express.json({
       limit: MAX_JSON_BODY_BYTES,
+      inflate: false,
       strict: true,
       type: "application/json",
     }),
