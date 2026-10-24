@@ -30,6 +30,7 @@ interface PeerovoWebSocket extends WebSocket {
 
 interface ActivePeer {
   client: IClient;
+  socket: WebSocket | null;
   claims: PeerClaims;
   ownerId: string;
   renewalFailures: number;
@@ -209,12 +210,20 @@ export function createPeerovoRuntime(config: PeerovoConfig): PeerovoRuntime {
     const previous = activeSession.peers.get(client.getId());
     const entry: ActivePeer = {
       client,
+      socket,
       claims,
       ownerId: admission.ownerId,
       renewalFailures: 0,
     };
     activeSession.peers.set(client.getId(), entry);
     if (!previous) usage.recordPeerConnected(claims.projectId);
+    if (
+      previous?.socket &&
+      previous.socket !== socket &&
+      previous.socket.readyState === WebSocket.OPEN
+    ) {
+      previous.socket.terminate();
+    }
     if (previous && previous.ownerId !== entry.ownerId) {
       void capacity
         .release(
