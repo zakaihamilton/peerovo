@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "engines": {
-    "node": ">=22.9.0"
+    "node": ">=22.23.4 <23 || >=24.22.1 <25 || >=26.12.1"
   },
   "scripts": {
     "dev": "node --env-file-if-exists=.env --import tsx --watch src/server.ts",
